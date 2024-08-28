@@ -29,7 +29,7 @@ def parse_arguments() -> Namespace:
                default='minechat.dvmn.org',
                help='Host name')
     parser.add('--port', '--WRITE_PORT', type=int, default=5050, help='Port')
-    parser.add('--hash',
+    parser.add('--user_hash',
                '--USER_HASH',
                type=str,
                default='',
@@ -83,8 +83,7 @@ async def register(host: str, port: int, user_name: str) -> str:
             return json_response['account_hash']
 
 
-async def authorise(writer: StreamWriter, user_hash: str) -> None:
-    print(type(writer))
+async def authorize(writer: StreamWriter, user_hash: str) -> None:
     writer.write(f'{user_hash}\n'.encode())
     await writer.drain()
     logger.debug(user_hash)
@@ -102,9 +101,11 @@ async def main() -> None:
     )
 
     args = parse_arguments()
-    user_hash = args.hash
+    user_name = args.user_name.replace(r'\n', '')
+    user_message = args.message.replace(r'\n', ' ')
+    user_hash: str = args.user_hash
 
-    if not args.hash:
+    if not user_hash:
         try:
             with open('credentials.json', 'r') as stream:
                 credentials = json.loads(stream.read())
@@ -115,7 +116,7 @@ async def main() -> None:
             logger.warning('Can\'t parse user credentials.')
 
     if not user_hash:
-        user_hash = await register(args.host, args.port, args.user_name)
+        user_hash = await register(args.host, args.port, user_name)
 
     reader, writer = await asyncio.open_connection(
             args.host, args.port
@@ -127,9 +128,9 @@ async def main() -> None:
         )
 
         if text_response == AUTH_REQUIRED:
-            await authorise(writer, user_hash)
+            await authorize(writer, user_hash)
         elif text_response == CHAT_GREETING:
-            await submit_message(writer, args.message)
+            await submit_message(writer, user_message)
             return
         elif json_response is None:
             logger.error('Invalid token. Check credentials '
