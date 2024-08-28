@@ -90,7 +90,7 @@ async def authorize(writer: StreamWriter, user_hash: str) -> None:
 
 
 async def submit_message(writer: StreamWriter, message: str) -> None:
-    writer.write(f'{message}\n'.encode())
+    writer.write(f'{message}\n\n'.encode())
     await writer.drain()
     logger.debug(message)
 
