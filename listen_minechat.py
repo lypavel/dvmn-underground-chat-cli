@@ -52,7 +52,7 @@ async def read_messages(host: str,
         except gaierror:
             print('Connection error: check your internet connection.',
                   file=sys.stderr)
-            break
+            asyncio.sleep(10)
 
 
 def main() -> None:
