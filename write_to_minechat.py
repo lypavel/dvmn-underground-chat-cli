@@ -1,9 +1,8 @@
 import asyncio
+from asyncio.streams import StreamWriter
 import json
 import logging
 from pathlib import Path
-from socket import gaierror
-import sys
 
 import aiofiles
 from configargparse import ArgParser, Namespace
@@ -47,53 +46,57 @@ def parse_arguments() -> Namespace:
     return args
 
 
-async def send_message(host: str,
-                       port: int,
-                       user_hash: str,
-                       user_name: str,
-                       message: str) -> None:
+def process_server_response(raw_response: bytes) -> tuple[str]:
+    text_response = raw_response.decode().strip()
+
     try:
-        reader, writer = await asyncio.open_connection(
+        json_response = json.loads(text_response)
+    except json.JSONDecodeError:
+        json_response = None
+
+    logger.debug(text_response)
+
+    return text_response, json_response
+
+
+async def register(host: str, port: int, user_name: str) -> str:
+    reader, writer = await asyncio.open_connection(
             host, port
         )
-        while True:
-            raw_response = await reader.readline()
-            text_response = raw_response.decode().strip()
-            logger.debug(text_response)
+    while True:
+        text_response, json_response = process_server_response(
+            await reader.readline()
+        )
 
-            if text_response == AUTH_REQUIRED:
-                if not user_hash:
-                    writer.write('\n'.encode())
-                    await writer.drain()
-                    continue
-
-                writer.write(f'{user_hash}\n'.encode())
-                await writer.drain()
-                logger.debug(user_hash)
-            elif text_response == ENTER_NICKNAME:
-                writer.write(f'{user_name}\n'.encode())
-                await writer.drain()
-                logger.debug(user_name)
-
-            elif text_response == CHAT_GREETING:
-                writer.write(f'{message}\n'.encode())
-                await writer.drain()
-                logger.debug(message)
-                break
-            elif json.loads(text_response) is None:
-                logger.error('Invalid token. Check credentials or leave it empty to register new user.')
-                break
-            elif json.loads(text_response):
-                async with aiofiles.open('credentials.json', 'w') as stream:
-                    await stream.write(json.dumps(json.loads(text_response), ensure_ascii=True, indent=2))
-
-    except gaierror:
-        print('Connection error: check your internet connection.',
-              file=sys.stderr)
+        if text_response == AUTH_REQUIRED:
+            writer.write('\n'.encode())
+            await writer.drain()
+        elif text_response == ENTER_NICKNAME:
+            writer.write(f'{user_name}\n'.encode())
+            await writer.drain()
+            logger.debug(user_name)
+        elif json_response is not None:
+            async with aiofiles.open('credentials.json', 'w') as stream:
+                await stream.write(json.dumps(json_response,
+                                              ensure_ascii=True,
+                                              indent=2))
+            return json_response['account_hash']
 
 
-def main() -> None:
-    logger.setLevel(logging.DEBUG)
+async def authorise(writer: StreamWriter, user_hash: str) -> None:
+    print(type(writer))
+    writer.write(f'{user_hash}\n'.encode())
+    await writer.drain()
+    logger.debug(user_hash)
+
+
+async def submit_message(writer: StreamWriter, message: str) -> None:
+    writer.write(f'{message}\n'.encode())
+    await writer.drain()
+    logger.debug(message)
+
+
+async def main() -> None:
     logging.basicConfig(
         level=logging.DEBUG
     )
@@ -111,12 +114,28 @@ def main() -> None:
         except json.JSONDecodeError:
             logger.warning('Can\'t parse user credentials.')
 
-    asyncio.run(send_message(args.host,
-                             args.port,
-                             user_hash,
-                             args.user_name,
-                             args.message))
+    if not user_hash:
+        user_hash = await register(args.host, args.port, args.user_name)
+
+    reader, writer = await asyncio.open_connection(
+            args.host, args.port
+        )
+
+    while True:
+        text_response, json_response = process_server_response(
+            await reader.readline()
+        )
+
+        if text_response == AUTH_REQUIRED:
+            await authorise(writer, user_hash)
+        elif text_response == CHAT_GREETING:
+            await submit_message(writer, args.message)
+            return
+        elif json_response is None:
+            logger.error('Invalid token. Check credentials '
+                         'or leave it empty to register new user.')
+            return
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
