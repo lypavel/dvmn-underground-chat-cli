@@ -2,10 +2,11 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 import sys
-from socket import gaierror
 
 import aiofiles
 from configargparse import ArgParser, Namespace
+
+from socket_utils import connect_to_chat
 
 
 def parse_arguments() -> Namespace:
@@ -33,12 +34,8 @@ def parse_arguments() -> Namespace:
 async def read_messages(host: str,
                         port: int,
                         chat_history_file: Path) -> None:
-    while True:
-        try:
-            reader, _ = await asyncio.open_connection(
-                host, port
-            )
-
+    async with connect_to_chat(host, port) as (reader, _):
+        while True:
             raw_message = await reader.readline()
             formatted_message = (
                 f'[{datetime.now().strftime("%d.%m.%y %H:%M")}] '
@@ -49,10 +46,6 @@ async def read_messages(host: str,
                 await stream.write(f'{formatted_message}\n')
 
             print(formatted_message, file=sys.stdout)
-        except gaierror:
-            print('Connection error: check your internet connection.',
-                  file=sys.stderr)
-            asyncio.sleep(10)
 
 
 def main() -> None:

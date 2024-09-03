@@ -1,12 +1,13 @@
 import asyncio
 from asyncio.streams import StreamWriter
-from contextlib import asynccontextmanager
 import json
 import logging
 from pathlib import Path
 
 import aiofiles
 from configargparse import ArgParser, Namespace
+
+from socket_utils import connect_to_chat
 
 AUTH_REQUIRED = (
     'Hello %username%! Enter your personal hash '
@@ -45,16 +46,6 @@ def parse_arguments() -> Namespace:
     args, _ = parser.parse_known_args()
 
     return args
-
-
-@asynccontextmanager
-async def connect_to_chat(host: str, port: int):
-    reader, writer = await asyncio.open_connection(host, port)
-    try:
-        yield reader, writer
-    finally:
-        writer.close()
-        await writer.wait_closed()
 
 
 def process_server_response(raw_response: bytes) -> tuple[str]:
